@@ -1,154 +1,35 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <title>شجرة العائلة الاحترافية - زوم وتصدير PDF</title>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f8f9fa; margin: 0; overflow: hidden; }
+Papa.parse(csvURL, {
+    download: true, header: false, skipEmptyLines: true,
+    complete: function(results) {
+        const rawData = results.data.slice(1);
         
-        /* شريط الأدوات */
-        #toolbar { 
-            position: fixed; top: 20px; right: 20px; z-index: 1000; 
-            background: rgba(255, 255, 255, 0.9); padding: 15px; 
-            border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            display: flex; flex-direction: column; gap: 10px;
-        }
-
-        button { 
-            padding: 12px 20px; cursor: pointer; border-radius: 6px; border: none; 
-            background: #2c3e50; color: white; font-weight: bold; font-size: 14px;
-            transition: 0.3s; display: flex; align-items: center; justify-content: center;
-        }
-
-        button:hover { background: #34495e; transform: scale(1.05); }
-        .pdf-btn { background: #e74c3c; }
-        .pdf-btn:hover { background: #c0392b; }
-
-        /* ستايل الشجرة */
-        .node rect { fill: #fff; stroke: #2c3e50; stroke-width: 2px; rx: 8; ry: 8; }
-        .node text { font-size: 14px; font-weight: bold; fill: #2c3e50; text-anchor: middle; pointer-events: none; }
-        .link { fill: none; stroke: #bdc3c7; stroke-width: 2px; transition: 0.3s; }
+        // ميزة "الذكاء الاصطناعي" لدمج التكرار:
+        const cleanData = [];
+        const seenNames = new Set();
         
-        #tree-container { width: 100vw; height: 100vh; cursor: grab; background: #fdfdfd; }
-        #tree-container:active { cursor: grabbing; }
-
-        #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold; color: #2c3e50; }
-    </style>
-</head>
-<body>
-
-    <div id="loading">جاري بناء الشجرة...</div>
-
-    <div id="toolbar">
-        <button class="pdf-btn" onclick="exportPDF()">📥 حفظ كـ PDF</button>
-        <button onclick="resetZoom()">🔄 إعادة ضبط الزوم</button>
-        <small style="text-align:center; color:#666;">استخدم الماوس للزوم والسحب</small>
-    </div>
-    
-    <div id="tree-container"></div>
-
-    <script>
-        // رابط ملفك
-        const csvURL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT_6K2hzmPfC9PGa-p0rbJvVsGxP7B7fb2yqXJC8CS34Q9gYAkN_M2HHvadooj2csNe5gZ5kDFIw2hh/pub?output=csv';
-
-        let svg, g, zoomHandler;
-
-        // جلب البيانات ومعالجتها لمنع التكرار
-        Papa.parse(csvURL, {
-            download: true, header: false, skipEmptyLines: true,
-            complete: function(results) {
-                const rawData = results.data.slice(1);
-                
-                // تنظيف البيانات ومنع تكرار الأسماء (جعل جاسم يظهر مرة واحدة)
-                const uniqueEntries = [];
-                const seen = new Set();
-                
-                rawData.forEach(row => {
-                    const name = row[0]?.trim();
-                    const parent = row[1]?.trim();
-                    if (name && !seen.has(name)) {
-                        uniqueEntries.push({ name, parent });
-                        seen.add(name);
-                    }
-                });
-
-                document.getElementById('loading').style.display = 'none';
-                initTree(uniqueEntries);
+        rawData.forEach(row => {
+            const name = row[0]?.trim();
+            const parent = row[1]?.trim();
+            
+            if (name && name !== "") {
+                // إذا تكرر الاسم كـ (ابن)، نأخذه مرة واحدة فقط لمنع تعطل الشجرة
+                if (!seenNames.has(name)) {
+                    cleanData.push({ name: name, parent: parent });
+                    seenNames.add(name);
+                }
             }
         });
 
-        function initTree(data) {
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-
-            // إنشاء الـ SVG
-            svg = d3.select("#tree-container").append("svg")
-                .attr("width", width).attr("height", height);
-            
-            g = svg.append("g");
-
-            // تفعيل خاصية الزوم والسحب
-            zoomHandler = d3.zoom()
-                .scaleExtent([0.1, 3]) // حدود التصغير والتكبير
-                .on("zoom", (event) => {
-                    g.attr("transform", event.transform);
-                });
-
-            svg.call(zoomHandler);
-
-            // تحويل البيانات لشكل شجري
-            const stratify = d3.stratify().id(d => d.name).parentId(d => d.parent);
-            const root = stratify(data);
-            
-            // تحديد المسافات بين العقد
-            const treeLayout = d3.tree().nodeSize([160, 220]);
-            treeLayout(root);
-
-            // رسم الوصلات (الخطوط)
-            g.selectAll(".link").data(root.links()).enter().append("path")
-                .attr("class", "link")
-                .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y));
-
-            // رسم العقد (المربعات والأسماء)
-            const node = g.selectAll(".node").data(root.descendants()).enter().append("g")
-                .attr("class", "node")
-                .attr("transform", d => `translate(${d.x},${d.y})`);
-
-            node.append("rect").attr("x", -70).attr("y", -20).attr("width", 140).attr("height", 40);
-            node.append("text").attr("dy", 5).text(d => d.data.name);
-
-            resetZoom();
-        }
-
-        function resetZoom() {
-            // إعادة الشجرة للمركز
-            svg.transition().duration(750).call(
-                zoomHandler.transform, 
-                d3.zoomIdentity.translate(window.innerWidth/2, 80).scale(0.7)
-            );
-        }
-
-        function exportPDF() {
-            const element = document.getElementById('tree-container');
-            const opt = {
-                margin: 0.2,
-                filename: 'Family-Tree.pdf',
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true },
-                jsPDF: { unit: 'in', format: 'a3', orientation: 'landscape' }
-            };
-            // تنفيذ التحويل والحفظ
-            html2pdf().set(opt).from(element).save();
-        }
-
-        // تحديث الحجم عند تغيير حجم النافذة
-        window.addEventListener('resize', () => {
-            svg.attr("width", window.innerWidth).attr("height", window.innerHeight);
+        // التأكد من أن كل "أب" موجود في قائمة "الأسماء" لضمان ظهور الشجرة
+        const namesList = new Set(cleanData.map(d => d.name));
+        cleanData.forEach(d => {
+            if (d.parent && d.parent !== "" && !namesList.has(d.parent)) {
+                // إضافة الأب المفقود تلقائياً كجذع للشجرة
+                cleanData.push({ name: d.parent, parent: "" });
+                namesList.add(d.parent);
+            }
         });
-    </script>
-</body>
-</html>
+
+        initTree(cleanData);
+    }
+});
