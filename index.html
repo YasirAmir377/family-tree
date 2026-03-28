@@ -2,160 +2,93 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>شجرة العائلة التفاعلية</title>
+    <title>شجرة العائلة الاحترافية</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
-        :root {
-            --primary-color: #2c3e50;
-            --secondary-color: #34495e;
-            --accent-color: #3498db;
-            --bg-color: #f4f7f6;
-            --line-color: #bdc3c7;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg-color);
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        h1 { color: var(--primary-color); margin-bottom: 10px; }
-        .subtitle { color: #7f8c8d; margin-bottom: 30px; }
-
-        /* الشجرة */
-        .tree ul {
-            padding-top: 20px; 
-            position: relative;
-            display: flex;
-            justify-content: center;
-            transition: all 0.5s;
-        }
-
-        .tree li {
-            text-align: center;
-            list-style-type: none;
-            position: relative;
-            padding: 20px 5px 0 5px;
-            transition: all 0.5s;
-        }
-
-        .tree li::before, .tree li::after {
-            content: '';
-            position: absolute; top: 0; right: 50%;
-            border-top: 2px solid var(--line-color);
-            width: 50%; height: 20px;
-        }
-        .tree li::after {
-            right: auto; left: 50%;
-            border-left: 2px solid var(--line-color);
-        }
-
-        .tree li:only-child::after, .tree li:only-child::before { display: none; }
-        .tree li:only-child { padding-top: 0; }
-        .tree li:first-child::after { border-radius: 5px 0 0 0; }
-        .tree li:last-child::before { border-right: 2px solid var(--line-color); border-radius: 0 5px 0 0; }
-        
-        .tree ul ul::before {
-            content: '';
-            position: absolute; top: 0; left: 50%;
-            border-left: 2px solid var(--line-color);
-            width: 0; height: 20px;
-        }
-
-        .tree li div {
-            border: 1px solid var(--line-color);
-            padding: 12px 20px;
-            background: #fff;
-            color: var(--primary-color);
-            font-weight: bold;
-            display: inline-block;
-            border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            min-width: 120px;
-            transition: all 0.3s;
-        }
-
-        .tree li div:hover {
-            background: var(--accent-color);
-            color: #fff;
-            border-color: var(--accent-color);
-            transform: translateY(-5px);
-            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
-        }
-
-        #loading { font-weight: bold; color: var(--accent-color); margin-top: 50px; }
+        body { font-family: 'Segoe UI', Tahoma; background: #f8f9fa; margin: 0; overflow: hidden; }
+        #controls { position: absolute; top: 20px; right: 20px; z-index: 100; display: flex; gap: 10px; }
+        button { padding: 10px 15px; cursor: pointer; border-radius: 5px; border: none; background: #2c3e50; color: white; font-weight: bold; }
+        button:hover { background: #34495e; }
+        .node rect { fill: #fff; stroke: #2c3e50; stroke-width: 2px; rx: 5; ry: 5; }
+        .node text { font-size: 14px; font-weight: bold; fill: #2c3e50; text-anchor: middle; }
+        .link { fill: none; stroke: #bdc3c7; stroke-width: 2px; }
+        #tree-container { width: 100vw; height: 100vh; cursor: grab; }
     </style>
 </head>
 <body>
 
-    <h1>شجرة العائلة</h1>
-    <p class="subtitle">يتم التحديث تلقائياً من Google Sheets</p>
+    <div id="controls">
+        <button onclick="exportPDF()">تصدير PDF</button>
+        <button onclick="resetZoom()">إعادة الضبط</button>
+    </div>
     
-    <div id="loading">جاري جلب البيانات من الملف...</div>
-    <div class="tree" id="familyTree"></div>
+    <div id="tree-container"></div>
 
     <script>
-        // الرابط الخاص بملفك
         const csvURL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT_6K2hzmPfC9PGa-p0rbJvVsGxP7B7fb2yqXJC8CS34Q9gYAkN_M2HHvadooj2csNe5gZ5kDFIw2hh/pub?output=csv';
 
-        Papa.parse(csvURL, {
-            download: true,
-            header: false, // سنعالج البيانات يدوياً لضمان المرونة
-            skipEmptyLines: true,
-            complete: function(results) {
-                const rows = results.data;
-                
-                // تنظيف البيانات وتحويلها لمصفوفة كائنات
-                // إذا كان أول سطر يحتوي على كلمة "الاسم" أو "الأب"، سنتخطاه
-                const startIndex = (rows[0][0].includes("الاسم") || rows[0][0].includes("Name")) ? 1 : 0;
-                
-                const familyData = rows.slice(startIndex).map(row => ({
-                    name: row[0]?.trim(),
-                    parent: row[1]?.trim()
-                })).filter(item => item.name);
+        let svg, g, zoom;
 
-                if (familyData.length > 0) {
-                    document.getElementById('loading').style.display = 'none';
-                    renderTree(familyData);
-                } else {
-                    document.getElementById('loading').innerText = "تم الاتصال ولكن لم يتم العثور على أسماء.";
-                }
-            },
-            error: function() {
-                document.getElementById('loading').innerHTML = "<span style='color:red;'>فشل تحميل البيانات. تأكد من أن الملف 'منشور للويب' بصيغة CSV.</span>";
+        Papa.parse(csvURL, {
+            download: true, header: false, skipEmptyLines: true,
+            complete: function(results) {
+                const rawData = results.data.slice(1);
+                // منع التكرار: نأخذ أول ظهور لكل اسم فقط
+                const uniqueData = Array.from(new Map(rawData.map(item => [item[0]?.trim(), item[1]?.trim()])).entries())
+                                     .map(([name, parent]) => ({ name, parent }));
+                renderD3Tree(uniqueData);
             }
         });
 
-        function renderTree(data) {
-            const map = {};
-            data.forEach(item => map[item.name] = { ...item, children: [] });
+        function renderD3Tree(data) {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
 
-            let roots = [];
-            data.forEach(item => {
-                if (item.parent && map[item.parent]) {
-                    map[item.parent].children.push(map[item.name]);
-                } else {
-                    roots.push(map[item.name]);
-                }
-            });
+            svg = d3.select("#tree-container").append("svg")
+                .attr("width", width).attr("height", height);
+            
+            g = svg.append("g");
 
-            const container = document.getElementById('familyTree');
-            const html = roots.map(root => "<ul>" + createNodeHTML(root) + "</ul>").join('');
-            container.innerHTML = html;
+            zoom = d3.zoom().on("zoom", (e) => g.attr("transform", e.transform));
+            svg.call(zoom);
+
+            const stratify = d3.stratify().id(d => d.name).parentId(d => d.parent);
+            const root = stratify(data);
+            const treeLayout = d3.tree().nodeSize([150, 200]);
+            treeLayout(root);
+
+            // رسم الخطوط
+            g.selectAll(".link").data(root.links()).enter().append("path")
+                .attr("class", "link")
+                .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y));
+
+            // رسم المربعات والأسماء
+            const node = g.selectAll(".node").data(root.descendants()).enter().append("g")
+                .attr("class", "node")
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+
+            node.append("rect").attr("x", -60).attr("y", -20).attr("width", 120).attr("height", 40);
+            node.append("text").attr("dy", 5).text(d => d.data.name);
+
+            resetZoom();
         }
 
-        function createNodeHTML(node) {
-            let html = `<li><div>${node.name}</div>`;
-            if (node.children.length > 0) {
-                html += "<ul>" + node.children.map(child => createNodeHTML(child)).join('') + "</ul>";
-            }
-            html += "</li>";
-            return html;
+        function resetZoom() {
+            svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity.translate(window.innerWidth/2, 50).scale(0.8));
+        }
+
+        function exportPDF() {
+            const element = document.getElementById('tree-container');
+            const opt = {
+                margin: 0,
+                filename: 'Family-Tree.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'in', format: 'a3', orientation: 'landscape' }
+            };
+            html2pdf().set(opt).from(element).save();
         }
     </script>
 </body>
