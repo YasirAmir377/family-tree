@@ -2,39 +2,192 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>شجرة العائلة - الترتيب الصحيح</title>
+    <title>شجرة العائلة الشاملة - 10 أجيال</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f8f9fa; margin: 0; overflow: hidden; }
-        #toolbar { position: fixed; top: 20px; right: 20px; z-index: 1000; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: flex; gap: 10px; }
-        button { padding: 10px 15px; cursor: pointer; border: none; border-radius: 5px; background: #2c3e50; color: white; font-weight: bold; }
-        button:hover { background: #34495e; }
-        .node rect { fill: white; stroke: #2980b9; stroke-width: 2px; rx: 6; ry: 6; }
-        .node text { font-size: 14px; font-weight: bold; fill: #2c3e50; text-anchor: middle; }
-        .link { fill: none; stroke: #bdc3c7; stroke-width: 2px; }
-        #tree-container { width: 100vw; height: 100vh; cursor: grab; }
-        .error-msg { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: red; font-size: 20px; font-weight: bold; display: none; background: white; padding: 20px; border: 2px solid red; border-radius: 10px; text-align: center; }
+        
+        /* تنسيق شريط الأدوات العلوي */
+        #toolbar { 
+            position: fixed; top: 20px; right: 20px; z-index: 1000; 
+            background: rgba(255, 255, 255, 0.9); padding: 15px; 
+            border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            display: flex; flex-direction: column; gap: 10px;
+        }
+
+        button { 
+            padding: 12px 20px; cursor: pointer; border-radius: 6px; border: none; 
+            background: #2c3e50; color: white; font-weight: bold; font-size: 14px;
+            transition: 0.3s; display: flex; align-items: center; justify-content: center;
+        }
+
+        button:hover { background: #34495e; transform: scale(1.05); }
+        .pdf-btn { background: #e74c3c; }
+        .pdf-btn:hover { background: #c0392b; }
+
+        /* ستايل الشجرة وعناصرها */
+        .node rect { fill: #fff; stroke: #2c3e50; stroke-width: 2px; rx: 8; ry: 8; }
+        .node text { font-size: 14px; font-weight: bold; fill: #2c3e50; text-anchor: middle; pointer-events: none; }
+        .link { fill: none; stroke: #bdc3c7; stroke-width: 2px; transition: 0.3s; }
+        
+        #tree-container { width: 100vw; height: 100vh; cursor: grab; background: #fdfdfd; }
+        #tree-container:active { cursor: grabbing; }
+
+        /* ستايل صندوق رسائل الخطأ */
+        .error-msg { 
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            color: red; font-size: 20px; font-weight: bold; display: none; 
+            background: white; padding: 25px; border: 3px solid red; border-radius: 12px; 
+            text-align: center; box-shadow: 0 5px 20px rgba(0,0,0,0.3); z-index: 2000;
+        }
     </style>
 </head>
 <body>
 
-<div id="toolbar">
-    <button onclick="exportPDF()" style="background: #e74c3c;">تصدير كـ PDF</button>
-    <button onclick="resetZoom()">إعادة ضبط الشاشة</button>
-</div>
+    <div id="errorBox" class="error-msg"></div>
 
-<div id="tree-container"></div>
-<div id="errorBox" class="error-msg"></div>
+    <div id="toolbar">
+        <button class="pdf-btn" onclick="exportPDF()">📥 حفظ كـ PDF</button>
+        <button onclick="resetZoom()">🔄 إعادة ضبط الزوم</button>
+        <small style="text-align:center; color:#666;">استخدم الماوس للزوم والسحب</small>
+    </div>
+    
+    <div id="tree-container"></div>
 
-<script>
-    // رابط الإكسل الخاص بك
-    const csvURL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT_6K2hzmPfC9PGa-p0rbJvVsGxP7B7fb2yqXJC8CS34Q9gYAkN_M2HHvadooj2csNe5gZ5kDFIw2hh/pub?output=csv';
+    <script>
+        // ضع رابط الـ CSV الخاص بملف Google Sheets هنا (تأكد أنه ينتهي بـ output=csv)
+        const csvURL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT_6K2hzmPfC9PGa-p0rbJvVsGxP7B7fb2yqXJC8CS34Q9gYAkN_M2HHvadooj2csNe5gZ5kDFIw2hh/pub?output=csv';
 
-    let svg, g, zoom;
+        let svg, g, zoomHandler;
+        const rootName = "الأصل_المخفي"; // اسم الجذر الوهمي لتجميع الأجداد
 
-    Papa.parse(csvURL, {
+        // 1. جلب البيانات ومعالجتها لمنع التكرار ودعم الـ 10 أجيال
+        Papa.parse(csvURL, {
+            download: true, header: false, skipEmptyLines: true,
+            complete: function(results) {
+                const allRows = results.data;
+                const relationsMap = new Map();
+                const allNames = new Set();
+
+                // مسح الإكسل وفهم أن الاسم في العمود الذي على اليمين هو "أب" للاسم الذي في يساره
+                allRows.forEach(row => {
+                    for (let i = 0; i < row.length - 1; i++) {
+                        let child = row[i]?.trim(); // الابن (العمود الأيمن)
+                        let parent = row[i+1]?.trim(); // الأب (العمود الأيسر)
+
+                        if (child && parent && child !== "" && parent !== "" && child !== parent) {
+                            allNames.add(child);
+                            allNames.add(parent);
+                            relationsMap.set(child, parent);
+                        }
+                    }
+                });
+
+                // 2. تجهيز البيانات وتوحيد الجذور (لمنع الصفحة البيضاء)
+                const cleanData = [];
+                // إضافة الجذر الوهمي
+                cleanData.push({ name: rootName, parent: "" });
+
+                allNames.forEach(name => {
+                    let parent = relationsMap.get(name);
+                    
+                    // إذا لم يكن للشخص أب في الجدول، نربطه بـ "الأصل_المخفي" ليصبح في أعلى الشجرة
+                    if (!parent || !allNames.has(parent)) {
+                        parent = rootName;
+                    }
+                    
+                    cleanData.push({ name: name, parent: parent });
+                });
+
+                initD3Tree(cleanData);
+            }
+        });
+
+        // 3. رسم الشجرة باستخدام مكتبة D3.js
+        function initD3Tree(data) {
+            try {
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+
+                // إنشاء الـ SVG
+                svg = d3.select("#tree-container").append("svg")
+                    .attr("width", width).attr("height", height);
+                
+                g = svg.append("g");
+
+                // تفعيل خاصية الزوم والسحب
+                zoomHandler = d3.zoom()
+                    .scaleExtent([0.1, 4]) // حدود التصغير والتكبير
+                    .on("zoom", (event) => {
+                        g.attr("transform", event.transform);
+                    });
+
+                svg.call(zoomHandler);
+
+                // تحويل البيانات لشكل شجري
+                const root = d3.stratify().id(d => d.name).parentId(d => d.parent)(data);
+                
+                // تحديد المسافات بين العقد (عرضي x عمودي) - المسافة العمودية 200 لدعم الأجيال العشرة
+                const treeLayout = d3.tree().nodeSize([160, 200]);
+                treeLayout(root);
+
+                // رسم الخطوط
+                g.selectAll(".link").data(root.links()).enter().append("path")
+                    .attr("class", "link")
+                    .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y))
+                    // إخفاء الخطوط المتصلة بـ "الأصل المخفي"
+                    .style("opacity", d => d.source.id === rootName ? 0 : 1); 
+
+                // رسم العقد (المربعات والأسماء)
+                const node = g.selectAll(".node").data(root.descendants()).enter().append("g")
+                    .attr("class", "node")
+                    .attr("transform", d => `translate(${d.x},${d.y})`)
+                    // إخفاء مربع "الأصل المخفي"
+                    .style("opacity", d => d.id === rootName ? 0 : 1);
+
+                node.append("rect").attr("x", -70).attr("y", -20).attr("width", 140).attr("height", 40);
+                node.append("text").attr("dy", 5).text(d => d.id);
+
+                resetZoom();
+            } catch (error) {
+                console.error(error);
+                document.getElementById("errorBox").style.display = "block";
+                document.getElementById("errorBox").innerText = "يوجد دوران في الأسماء! يرجى مراجعة الإكسل والتأكد أن الابن ليس أباً لجدّه أو لنفسه.";
+            }
+        }
+
+        function resetZoom() {
+            // إعادة الشجرة للمركز وتصغيرها قليلاً لتظهر الأجيال الأولى
+            svg.transition().duration(750).call(
+                zoomHandler.transform, 
+                d3.zoomIdentity.translate(window.innerWidth/2, 50).scale(0.8)
+            );
+        }
+
+        // 4. دالة تصدير الشجرة لـ PDF مقاس A2
+        function exportPDF() {
+            const element = document.getElementById('tree-container');
+            const opt = {
+                margin: 0.2,
+                filename: 'Family-Tree-10Generations.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                // ضبط التنسيق ليكون أفقيًا (Landscape) ومقاس A2 (كبير جدًا)
+                jsPDF: { unit: 'in', format: 'a2', orientation: 'landscape' }
+            };
+            // تنفيذ التحويل والحفظ
+            html2pdf().set(opt).from(element).save();
+        }
+
+        // تحديث الحجم عند تغيير حجم النافذة
+        window.addEventListener('resize', () => {
+            svg.attr("width", window.innerWidth).attr("height", window.innerHeight);
+        });
+    </script>
+</body>
+</html>    Papa.parse(csvURL, {
         download: true, header: false, skipEmptyLines: true,
         complete: function(results) {
             const allRows = results.data;
