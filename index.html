@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>شجرة العائلة الكاملة - طباعة ذكية</title>
+    <title>شجرة العائلة - التصميم الطولي الممتد</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -10,129 +10,127 @@
     <style>
         body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #fff; margin: 0; overflow: hidden; }
         #toolbar { 
-            position: fixed; top: 15px; right: 15px; z-index: 1000; 
-            background: rgba(255,255,255,0.9); padding: 12px; border-radius: 8px; 
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; gap: 8px;
+            position: fixed; top: 20px; right: 20px; z-index: 1000; 
+            background: rgba(255,255,255,0.95); padding: 15px; border-radius: 10px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15); display: flex; gap: 10px;
         }
         button { 
-            padding: 10px 15px; cursor: pointer; border-radius: 5px; border: none; 
-            background: #2c3e50; color: white; font-weight: bold;
+            padding: 10px 20px; cursor: pointer; border-radius: 6px; border: none; 
+            background: #2c3e50; color: white; font-weight: bold; transition: 0.3s;
         }
-        .pdf-btn { background: #c0392b; }
-        #tree-container { width: 100vw; height: 100vh; }
-        /* ستايل المربعات والخطوط */
-        .node rect { stroke-width: 2px; rx: 5; fill: #fff; }
-        .node text { font-size: 14px; font-weight: bold; text-anchor: middle; fill: #333; }
-        .link { fill: none; stroke: #ccc; stroke-width: 1.5px; }
+        button:hover { background: #34495e; transform: translateY(-2px); }
+        .pdf-btn { background: #e74c3c; }
+        .pdf-btn:hover { background: #c0392b; }
+        
+        #tree-container { width: 100vw; height: 100vh; background: white; }
+        
+        /* تصميم الخطوط المنحنية مثل الرسم الأحمر */
+        .link { fill: none; stroke: #bdc3c7; stroke-width: 2px; }
+        
+        /* تصميم المربعات */
+        .node rect { fill: #fff; stroke: #2980b9; stroke-width: 2px; rx: 8; ry: 8; }
+        .node text { font-size: 14px; font-weight: bold; fill: #2c3e50; text-anchor: middle; }
     </style>
 </head>
 <body>
 
 <div id="toolbar">
-    <button class="pdf-btn" onclick="exportToPDF()">📥 حفظ الشجرة كاملة (PDF)</button>
-    <button onclick="resetView()">🔄 إعادة الضبط</button>
+    <button class="pdf-btn" onclick="exportFullTree()">📥 حفظ الشجرة كاملة (PDF)</button>
+    <button onclick="resetZoom()">🔄 إعادة ضبط الشاشة</button>
 </div>
 
 <div id="tree-container"></div>
 
 <script>
     const csvURL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT_6K2hzmPfC9PGa-p0rbJvVsGxP7B7fb2yqXJC8CS34Q9gYAkN_M2HHvadooj2csNe5gZ5kDFIw2hh/pub?output=csv';
-    let svg, g, zoom, fullData;
-
-    // تلوين الأجيال (اختياري لجعل الشكل أجمل)
-    const colors = ["#2980b9", "#27ae60", "#8e44ad", "#f39c12", "#c0392b", "#16a085"];
+    let svg, g, zoomHandler, treeRoot;
 
     Papa.parse(csvURL, {
         download: true, header: false, skipEmptyLines: true,
         complete: function(results) {
-            const relations = new Map();
-            const names = new Set();
+            const relationsMap = new Map();
+            const allNames = new Set();
             
-            // قراءة البيانات من الإكسل (العمود A ابن، B أب، وهكذا)
+            // قراءة البيانات بعمق (دعم 10 أجيال)
             results.data.forEach(row => {
                 for (let i = 0; i < row.length - 1; i++) {
-                    let c = row[i]?.trim(), p = row[i+1]?.trim();
-                    if (c && p && c !== p) {
-                        names.add(c); names.add(p);
-                        relations.set(c, p);
+                    let child = row[i]?.trim(), parent = row[i+1]?.trim();
+                    if (child && parent && child !== parent) {
+                        allNames.add(child); allNames.add(parent);
+                        relationsMap.set(child, parent);
                     }
                 }
             });
 
-            const treeData = [{ name: "ROOT", parent: "" }];
-            names.forEach(n => {
-                let p = relations.get(n);
-                if (!p || !names.has(p)) p = "ROOT";
-                treeData.push({ name: n, parent: p });
+            const cleanData = [{ name: "ORIGIN_ROOT", parent: "" }];
+            allNames.forEach(name => {
+                let p = relationsMap.get(name);
+                if (!p || !allNames.has(p)) p = "ORIGIN_ROOT";
+                cleanData.push({ name: name, parent: p });
             });
-            initTree(treeData);
+            drawLongTree(cleanData);
         }
     });
 
-    function initTree(data) {
+    function drawLongTree(data) {
         const width = window.innerWidth, height = window.innerHeight;
         svg = d3.select("#tree-container").append("svg").attr("width", width).attr("height", height);
         g = svg.append("g");
         
-        zoom = d3.zoom().on("zoom", (e) => g.attr("transform", e.transform));
-        svg.call(zoom);
+        zoomHandler = d3.zoom().scaleExtent([0.01, 3]).on("zoom", (e) => g.attr("transform", e.transform));
+        svg.call(zoomHandler);
 
-        const root = d3.stratify().id(d => d.name).parentId(d => d.parent)(data);
-        // تكبير المسافات لضمان عدم قص الأسماء (180 للعرض، 220 للطول)
-        d3.tree().nodeSize([180, 220])(root);
-
-        // رسم الخطوط
-        g.selectAll(".link").data(root.links()).enter().append("path").attr("class", "link")
-            .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y))
-            .style("opacity", d => d.source.id === "ROOT" ? 0 : 1);
-
-        // رسم المربعات
-        const node = g.selectAll(".node").data(root.descendants()).enter().append("g")
-            .attr("class", "node").attr("transform", d => `translate(${d.x},${d.y})`)
-            .style("opacity", d => d.id === "ROOT" ? 0 : 1);
-
-        node.append("rect").attr("x", -75).attr("y", -20).attr("width", 150).attr("height", 40)
-            .style("stroke", d => colors[d.depth % colors.length]); // تلوين الإطار حسب الجيل
-
-        node.append("text").attr("dy", 5).text(d => d.id);
-        resetView();
-    }
-
-    function resetView() {
-        svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity.translate(window.innerWidth/2, 50).scale(0.6));
-    }
-
-    async function exportToPDF() {
-        const { jsPDF } = window.jspdf;
+        treeRoot = d3.stratify().id(d => d.name).parentId(d => d.parent)(data);
         
-        // 1. حساب الأبعاد الكلية الفعلية للشجرة (حتى الأجزاء غير الظاهرة)
-        const bounds = g.node().getBBox();
-        const fullWidth = bounds.width + 200;
-        const fullHeight = bounds.height + 200;
+        // تعديل المسافات: 160 للعرض و 250 للطول لضمان شكل ممتد للأسفل
+        const treeLayout = d3.tree().nodeSize([160, 250]);
+        treeLayout(treeRoot);
 
-        // 2. ضبط الكاميرا لتشمل كل شيء قبل التصوير
-        svg.attr("width", fullWidth).attr("height", fullHeight);
-        g.attr("transform", `translate(${-bounds.x + 100}, ${-bounds.y + 100})`);
+        // رسم الروابط المنحنية (مثل الرسم الأحمر)
+        g.selectAll(".link").data(treeRoot.links()).enter().append("path")
+            .attr("class", "link")
+            .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y))
+            .style("opacity", d => d.source.id === "ORIGIN_ROOT" ? 0 : 1);
 
-        const canvas = await html2canvas(document.querySelector("svg"), {
-            scale: 2, // دقة عالية للطباعة
+        const node = g.selectAll(".node").data(treeRoot.descendants()).enter().append("g")
+            .attr("class", "node")
+            .attr("transform", d => `translate(${d.x},${d.y})`)
+            .style("opacity", d => d.id === "ORIGIN_ROOT" ? 0 : 1);
+
+        node.append("rect").attr("x", -70).attr("y", -20).attr("width", 140).attr("height", 40);
+        node.append("text").attr("dy", 5).text(d => d.id);
+        
+        resetZoom();
+    }
+
+    function resetZoom() {
+        svg.transition().duration(750).call(
+            zoomHandler.transform, 
+            d3.zoomIdentity.translate(window.innerWidth/2, 50).scale(0.5)
+        );
+    }
+
+    async function exportFullTree() {
+        const { jsPDF } = window.jspdf;
+        const bounds = g.node().getBBox(); // حساب الحجم الحقيقي للشجرة الطويلة
+        
+        const canvas = await html2canvas(document.body, {
+            scale: 2, 
             useCORS: true,
-            logging: false
+            backgroundColor: "#ffffff"
         });
 
-        // 3. إنشاء ملف PDF بمقاس مخصص يطابق حجم الشجرة تماماً
+        const imgData = canvas.toDataURL('image/png');
+        
+        // إنشاء PDF بمقاس يتوسع تلقائياً ليناسب طول الشجرة
         const pdf = new jsPDF({
-            orientation: fullWidth > fullHeight ? 'l' : 'p',
+            orientation: bounds.width > bounds.height ? 'l' : 'p',
             unit: 'px',
-            format: [fullWidth * 2, fullHeight * 2] 
+            format: [canvas.width, canvas.height]
         });
 
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, fullWidth * 2, fullHeight * 2);
-        pdf.save('Family_Tree_Perfect_Fit.pdf');
-
-        // إعادة ضبط العرض للمتصفح بعد التصدير
-        svg.attr("width", window.innerWidth).attr("height", window.innerHeight);
-        resetView();
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('Family_Tree_Long.pdf');
     }
 </script>
 </body>
