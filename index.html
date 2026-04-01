@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>شجرة العائلة - عمودي ضخم</title>
+    <title>شجرة العائلة الضخمة - حجم 48</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -21,15 +21,15 @@
         .pdf-btn { background: #e74c3c; }
         #tree-container { width: 100vw; height: 100vh; background: white; }
 
-        /* تعديلات السمك والحجم (التغيير الأهم) */
+        /* تعديلات الحجم والسمك الكبرى بناءً على طلبك */
         .node rect { 
             fill: #fff; 
             stroke: #2980b9; 
-            stroke-width: 2.5px; /* زيادة سمك إطار المربع */
-            rx: 6; ry: 6; 
+            stroke-width: 5px; /* زيادة سمك إطار المربع ليتناسب مع الحجم الجديد */
+            rx: 10; ry: 10; 
         }
         .node text { 
-            font-size: 16px; /* زيادة حجم خط الأسماء */
+            font-size: 48px; /* حجم خط الأسماء (48 كما طلبت) */
             font-weight: bold; 
             text-anchor: middle; 
             fill: #2c3e50; 
@@ -37,21 +37,21 @@
         .link { 
             fill: none; 
             stroke: #bdc3c7; 
-            stroke-width: 2px; /* زيادة سمك الخطوط الواصلة */
+            stroke-width: 6px; /* زيادة سمك خطوط الربط ليتناسب مع حجم النص */
         }
     </style>
 </head>
 <body>
 
 <div id="toolbar">
-    <button class="pdf-btn" onclick="exportFullVerticalPDF()">📥 حفظ الشجرة كاملة (عمودي)</button>
+    <button class="pdf-btn" onclick="exportHugePDF()">📥 تصدير PDF (الشكل الضخم)</button>
     <button onclick="resetZoom()">🔄 إعادة ضبط الشاشة</button>
 </div>
 
 <div id="tree-container"></div>
 
 <script>
-    // ضع رابط الـ CSV الخاص بملف Google Sheets هنا (تأكد من output=csv)
+    // ضع رابط الـ CSV الخاص بملفك هنا (تأكد أنه ينتهي بـ output=csv)
     const csvURL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT_6K2hzmPfC9PGa-p0rbJvVsGxP7B7fb2yqXJC8CS34Q9gYAkN_M2HHvadooj2csNe5gZ5kDFIw2hh/pub?output=csv';
     let svg, g, zoom, treeRoot;
 
@@ -60,8 +60,6 @@
         complete: function(results) {
             const relations = new Map();
             const names = new Set();
-            
-            // قراءة البيانات أفقياً (كما طلبت سابقاً)
             results.data.forEach(row => {
                 for (let i = 0; i < row.length - 1; i++) {
                     let child = row[i]?.trim(), parent = row[i+1]?.trim();
@@ -72,17 +70,17 @@
                 }
             });
 
-            const data = [{ name: "ROOT_ORIGIN", parent: "" }];
+            const data = [{ name: "ROOT", parent: "" }];
             names.forEach(n => {
                 let p = relations.get(n);
-                if (!p || !names.has(p)) p = "ROOT_ORIGIN";
+                if (!p || !names.has(p)) p = "ROOT";
                 data.push({ name: n, parent: p });
             });
-            drawHugeVerticalTree(data);
+            drawHugeTree(data);
         }
     });
 
-    function drawHugeVerticalTree(data) {
+    function drawHugeTree(data) {
         const width = window.innerWidth, height = window.innerHeight;
         svg = d3.select("#tree-container").append("svg").attr("width", width).attr("height", height);
         g = svg.append("g");
@@ -92,37 +90,38 @@
 
         treeRoot = d3.stratify().id(d => d.name).parentId(d => d.parent)(data);
         
-        // السر هنا: [80, 250] - العرض (80) يضغط الأغصان لتصبح نحيفة، والطول (250) يمدها لأسفل
-        const treeLayout = d3.tree().nodeSize([80, 250]);
+        // زيادة المسافات لتناسب الحجم الضخم: [300 للعرض، 500 للطول]
+        const treeLayout = d3.tree().nodeSize([300, 500]);
         treeLayout(treeRoot);
 
-        // رسم الروابط عمودياً (linkVertical)
         g.selectAll(".link").data(treeRoot.links()).enter().append("path").attr("class", "link")
             .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y))
-            .style("opacity", d => d.source.id === "ROOT_ORIGIN" ? 0 : 1);
+            .style("opacity", d => d.source.id === "ROOT" ? 0 : 1);
 
         const node = g.selectAll(".node").data(treeRoot.descendants()).enter().append("g")
             .attr("class", "node").attr("transform", d => `translate(${d.x},${d.y})`)
-            .style("opacity", d => d.id === "ROOT_ORIGIN" ? 0 : 1);
+            .style("opacity", d => d.id === "ROOT" ? 0 : 1);
 
-        // زيادة حجم المربع (120x30)
-        node.append("rect").attr("x", -60).attr("y", -15).attr("width", 120).attr("height", 30);
-        node.append("text").attr("dy", 5).text(d => d.id);
+        // زيادة حجم المربع (320x100) ليتناسب مع النص بحجم 48
+        node.append("rect").attr("x", -160).attr("y", -50).attr("width", 320).attr("height", 100);
+        
+        // ضبط النص (48 كما طلبت)
+        node.append("text").attr("dy", 15).text(d => d.id);
         
         resetZoom();
     }
 
     function resetZoom() {
-        // إعادة الشجرة للمركز وتصغيرها قليلاً لتظهر الأجيال الأولى
+        // إعادة الشجرة للمركز وتصغيرها جداً لتظهر الأجيال الأولى في الحجم الضخم
         svg.transition().duration(750).call(
             zoom.transform, 
-            d3.zoomIdentity.translate(window.innerWidth/2, 40).scale(0.5)
+            d3.zoomIdentity.translate(window.innerWidth/2, 50).scale(0.2)
         );
     }
 
-    async function exportFullVerticalPDF() {
-        const bounds = g.node().getBBox(); // حساب الأبعاد الكلية الحقيقية لمنع قص الأطراف
-        const canvas = await html2canvas(document.body, { scale: 2, useCORS: true });
+    async function exportHugePDF() {
+        const bounds = g.node().getBBox(); // حساب الحجم الحقيقي للشجرة الضخمة لمنع قص الأطراف
+        const canvas = await html2canvas(document.body, { scale: 1.5, useCORS: true });
         const { jsPDF } = window.jspdf;
         
         const pdf = new jsPDF({
@@ -131,7 +130,7 @@
             format: [canvas.width, canvas.height] // حجم الورقة يناسب الشجرة بالضبط
         });
         pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
-        pdf.save('Family_Tree_Vertical_Perfect.pdf');
+        pdf.save('Huge_Family_Tree_48.pdf');
     }
 </script>
 </body>
